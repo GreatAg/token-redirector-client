@@ -880,10 +880,10 @@ void MainFrame::on_help_about(wxCommandEvent&)
         d.SetDescription(wx_string(v.GetFileDescription()));
         d.SetCopyright(wx_string(v.GetLegalCopyright()));
 
-        d.AddDeveloper(L"Vadym Hrynchyshyn\t<vadimgrn@gmail.com>");
-        d.SetWebSite(L"https://github.com/vadimgrn/usbip-win2", _("GitHub project page"));
+        //d.AddDeveloper(L"Vadym Hrynchyshyn\t<vadimgrn@gmail.com>");
+        d.SetWebSite(L"https://apk-group.net", _("APK Website"));
 
-        d.SetLicence(_("GNU General Public License v3.0"));
+        //d.SetLicence(_("GNU General Public License v3.0"));
         //d.SetIcon();
 
         wxAboutBox(d, this);
