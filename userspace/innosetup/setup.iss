@@ -55,7 +55,7 @@ AppName={#ProductName}
 AppVersion={#AppVersion}
 AppCopyright={#Copyright}
 AppPublisher={#Company}
-AppPublisherURL=https://github.com/vadimgrn/usbip-win2
+AppPublisherURL=https://apk-group.net/
 WizardStyle=modern
 DefaultDirName={autopf}\{#ProductName}
 DefaultGroupName={#ProductName}
@@ -88,7 +88,7 @@ WelcomeLabel2=This will install [name/ver] on your computer.%n%nWindows Test Sig
 [Components]
 Name: "main"; Description: "Main Files"; Types: full compact custom; Flags: fixed
 Name: "gui"; Description: "GUI App"; Types: full custom;
-Name: "sdk"; Description: "USBIP Software Development Kit"; Types: full custom
+Name: "sdk"; Description: "APK Software Development Kit"; Types: full custom
 Name: "pdb"; Description: "Program DataBase files"; Types: full custom
 
 [Icons]

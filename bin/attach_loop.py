@@ -3,7 +3,7 @@ import subprocess
 import random
 import time
 
-usbip_path = "C:\\Program Files\\USBip\\usbip.exe"
+usbip_path = "C:\\Program Files\\APK Token Redirector Client\\usbip.exe"
 random.seed()
 
 def run(args):

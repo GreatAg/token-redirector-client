@@ -51,8 +51,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,9,6,1
- PRODUCTVERSION 0,9,6,1
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -67,14 +67,14 @@ BEGIN
     BEGIN
         BLOCK "040004b0"
         BEGIN
-            VALUE "CompanyName", "usbip-win2"
-            VALUE "FileDescription", "devnode for USBip"
-            VALUE "FileVersion", "0.9.6.1"
+            VALUE "CompanyName", "APK"
+            VALUE "FileDescription", "devnode for APK Token Redirector"
+            VALUE "FileVersion", "0.1.0.0"
             VALUE "InternalName", "devnode.exe"
-            VALUE "LegalCopyright", "Copyright (C) 2022 - 2024 usbip-win2 project"
+            VALUE "LegalCopyright", "Copyright (C) 2023 - 2025 APK Token Redirector"
             VALUE "OriginalFilename", "devnode.exe"
-            VALUE "ProductName", "USBip"
-            VALUE "ProductVersion", "0.9.6.1"
+            VALUE "ProductName", "APK Token Redirector Client"
+            VALUE "ProductVersion", "0.1.0.0"
         END
     END
     BLOCK "VarFileInfo"

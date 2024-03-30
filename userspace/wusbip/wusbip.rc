@@ -50,8 +50,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,9,6,1
- PRODUCTVERSION 0,9,6,1
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -68,12 +68,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "APK"
             VALUE "FileDescription", "APK Token Redirector"
-            VALUE "FileVersion", "0.9.6.1"
+            VALUE "FileVersion", "0.1.0.0"
             VALUE "InternalName", "wusbip.exe"
-            VALUE "LegalCopyright", "Copyright (C) 2023 - 2024 Token-redirector project"
+            VALUE "LegalCopyright", "Copyright (C) 2023 - 2025 APK Token Redirector"
             VALUE "OriginalFilename", "wusbip.exe"
-            VALUE "ProductName", "APK Token Redirector"
-            VALUE "ProductVersion", "0.9.6.1"
+            VALUE "ProductName", "APK Token Redirector Client"
+            VALUE "ProductVersion", "0.1.0.0"
         END
     END
     BLOCK "VarFileInfo"

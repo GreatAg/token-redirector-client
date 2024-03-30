@@ -1,6 +1,6 @@
 @echo off
 
-set APPDIR=C:\Program Files\USBip
+set APPDIR=C:\Program Files\APK Token Redirector Client
 set HWID=ROOT\USBIP_WIN2\UDE
 
 "%APPDIR%\usbip.exe" detach --all
