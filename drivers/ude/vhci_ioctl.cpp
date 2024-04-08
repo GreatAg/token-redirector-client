@@ -17,6 +17,7 @@
 
 #include <libdrv\dbgcommon.h>
 #include <libdrv\strconv.h>
+#include <libdrv\irp.h>
 
 #include <ntstrsafe.h>
 #include <usbuser.h>
@@ -28,6 +29,49 @@ using namespace usbip;
 
 static_assert(sizeof(vhci::imported_device_location::service) == NI_MAXSERV);
 static_assert(sizeof(vhci::imported_device_location::host) == NI_MAXHOST);
+
+enum { ARG_INFO, ARG_WHAT, ARG_AI }; // the fourth parameter is used by WSK subsystem
+
+struct workitem_ctx
+{
+        WDFDEVICE vhci;
+        device_ctx_ext *ext;
+        ADDRINFOEXW *addrinfo; // list head
+};
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(workitem_ctx, get_workitem_ctx)
+
+inline auto get_request(_In_ WDFWORKITEM wi)
+{
+        return static_cast<WDFREQUEST>(WdfWorkItemGetParentObject(wi));
+}
+
+_IRQL_requires_same_
+_IRQL_requires_max_(PASSIVE_LEVEL)
+PAGED auto set_args(_In_ WDFREQUEST request, _In_ const char *function, _In_ const ADDRINFOEXW *ai = nullptr)
+{
+        PAGED_CODE();
+        auto irp = WdfRequestWdmGetIrp(request);
+
+        libdrv::argv<ARG_INFO>(irp) = reinterpret_cast<void*>(WdfRequestGetInformation(request)); // backup
+        libdrv::argv<ARG_WHAT>(irp) = const_cast<char*>(function);
+        libdrv::argv<ARG_AI>(irp) = const_cast<ADDRINFOEXW*>(ai);
+
+        return irp;
+}
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED auto make_sockaddr_inet(_In_ const ADDRINFOEXW &ai)
+{
+        PAGED_CODE();
+        SOCKADDR_INET sa{};
+
+        NT_ASSERT(ai.ai_addrlen <= sizeof(sa));
+        auto len = min(ai.ai_addrlen, sizeof(sa));
+
+        RtlCopyMemory(&sa, ai.ai_addr, len);
+        return sa;
+}
 
 _IRQL_requires_same_
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -72,7 +116,7 @@ PAGED auto send_req_import(_In_ device_ctx_ext &ext)
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto recv_rep_import(_In_ device_ctx_ext &ext, _In_ memory pool, _Out_ op_import_reply &reply)
+PAGED NTSTATUS recv_rep_import(_In_ device_ctx_ext &ext, _In_ memory pool, _Out_ op_import_reply &reply)
 {
         PAGED_CODE();
         RtlZeroMemory(&reply, sizeof(reply));
@@ -83,12 +127,12 @@ PAGED auto recv_rep_import(_In_ device_ctx_ext &ext, _In_ memory pool, _Out_ op_
 
         if (auto err = recv(ext.sock, pool, &reply, sizeof(reply))) {
                 Trace(TRACE_LEVEL_ERROR, "Receive op_import_reply %!STATUS!", err);
-                return USBIP_ERROR_NETWORK;
+                return err;
         }
         PACK_OP_IMPORT_REPLY(false, &reply);
 
         if (char busid[sizeof(reply.udev.busid)];
-            DWORD err = libdrv::unicode_to_utf8(busid, sizeof(busid), ext.busid)) {
+            auto err = libdrv::unicode_to_utf8(busid, sizeof(busid), ext.busid)) {
                 Trace(TRACE_LEVEL_ERROR, "unicode_to_utf8('%!USTR!') %!STATUS!", &ext.busid, err);
                 return err;
         } else if (strncmp(reply.udev.busid, busid, sizeof(busid))) {
@@ -96,7 +140,7 @@ PAGED auto recv_rep_import(_In_ device_ctx_ext &ext, _In_ memory pool, _Out_ op_
                 return USBIP_ERROR_PROTOCOL;
         }
 
-        return USBIP_ERROR_SUCCESS;
+        return STATUS_SUCCESS;
 }
 
 _IRQL_requires_same_
@@ -107,7 +151,7 @@ PAGED auto import_remote_device(_Inout_ device_ctx_ext &ext)
 
         if (auto err = send_req_import(ext)) {
                 Trace(TRACE_LEVEL_ERROR, "Send OP_REQ_IMPORT %!STATUS!", err);
-                return USBIP_ERROR_NETWORK;
+                return err;
         }
 
         op_import_reply reply;
@@ -125,22 +169,54 @@ PAGED auto import_remote_device(_Inout_ device_ctx_ext &ext)
                 d->product = udev.idProduct;
         }
 
-        return USBIP_ERROR_SUCCESS;
+        return STATUS_SUCCESS;
 }
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto getaddrinfo(_Out_ ADDRINFOEXW* &result, _In_ device_ctx_ext &ext)
+PAGED NTSTATUS plugin(_Out_ int &port, _In_ UDECXUSBDEVICE device)
 {
         PAGED_CODE();
 
-        ADDRINFOEXW hints{};
-        hints.ai_flags = AI_NUMERICSERV;
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        hints.ai_protocol = IPPROTO_TCP; // zero isn't work
+        if (port = vhci::claim_roothub_port(device); port) {
+                TraceDbg("port %d claimed", port);
+        } else {
+                Trace(TRACE_LEVEL_ERROR, "All roothub ports are occupied");
+                return USBIP_ERROR_PORTFULL;
+        }
 
-        return wsk::getaddrinfo(result, &ext.node_name, &ext.service_name, &hints);
+        auto &dev = *get_device_ctx(device);
+        auto speed = dev.speed();
+
+        UDECX_USB_DEVICE_PLUG_IN_OPTIONS options; 
+        UDECX_USB_DEVICE_PLUG_IN_OPTIONS_INIT(&options);
+
+        auto &portnum = speed < USB_SPEED_SUPER ? options.Usb20PortNumber : options.Usb30PortNumber;
+        portnum = port;
+
+        if (auto err = UdecxUsbDevicePlugIn(device, &options)) {
+                Trace(TRACE_LEVEL_ERROR, "UdecxUsbDevicePlugIn %!STATUS!", err);
+                return err;
+        }
+
+        return STATUS_SUCCESS;
+}
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED auto start_device(_Out_ int &port, _In_ UDECXUSBDEVICE device)
+{
+        PAGED_CODE();
+
+        if (auto err = plugin(port, device)) {
+                return err;
+        }
+
+        if (auto dev = get_device_ctx(device)) {
+                sched_receive_usbip_header(*dev);
+        }
+
+        return STATUS_SUCCESS;
 }
 
 /*
@@ -148,7 +224,7 @@ PAGED auto getaddrinfo(_Out_ ADDRINFOEXW* &result, _In_ device_ctx_ext &ext)
  */
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto set_options(wsk::SOCKET *sock)
+PAGED auto set_options(_In_ wsk::SOCKET *sock)
 {
         PAGED_CODE();
 
@@ -190,176 +266,280 @@ PAGED auto set_options(wsk::SOCKET *sock)
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto try_connect(wsk::SOCKET *sock, const ADDRINFOEXW &ai, void*)
+PAGED NTSTATUS connected(_In_ WDFREQUEST request, _Inout_ device_ctx_ext* &ext)
 {
         PAGED_CODE();
+        Trace(TRACE_LEVEL_INFORMATION, "Connected to %!USTR!:%!USTR!", &ext->node_name, &ext->service_name);
+
+        vhci::ioctl::plugin_hardware *r{};
+        NT_VERIFY(NT_SUCCESS(WdfRequestRetrieveInputBuffer(request, sizeof(*r), reinterpret_cast<PVOID*>(&r), nullptr)));
+
+        auto vhci = get_vhci(request);
+        device_state_changed(vhci, *ext, 0, vhci::state::connected);
+
+        if (auto err = import_remote_device(*ext)) {
+                return err;
+        }
+
+        UDECXUSBDEVICE dev{};
+        if (auto err = device::create(dev, vhci, ext)) {
+                return err;
+        }
+        ext = nullptr; // now dev owns it
+
+        if (auto err = start_device(r->port, dev)) {
+                WdfObjectDelete(dev); // UdecxUsbDevicePlugIn failed or was not called
+                return err;
+        }
+
+        Trace(TRACE_LEVEL_INFORMATION, "dev %04x plugged in, port %d", ptr04x(dev), r->port);
+
+        if (auto ctx = get_device_ctx(dev)) {
+                device_state_changed(*ctx, vhci::state::plugged);
+        }
+
+        return STATUS_SUCCESS;
+}
+
+_Function_class_(IO_COMPLETION_ROUTINE)
+_IRQL_requires_same_
+_IRQL_requires_max_(DISPATCH_LEVEL)
+NTSTATUS irp_complete(_In_ DEVICE_OBJECT*, _In_ IRP *irp, _In_reads_opt_(_Inexpressible_("varies")) void *context)
+{
+        if (irp->PendingReturned) {
+                IoMarkIrpPending(irp);
+        }
+
+        WdfWorkItemEnqueue(static_cast<WDFWORKITEM>(context));
+        return StopCompletion;
+}
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED NTSTATUS create_socket(_Inout_ wsk::SOCKET* &sock, _In_ const ADDRINFOEXW &ai)
+{
+        PAGED_CODE();
+        NT_ASSERT(!sock);
+
+        if (auto err = socket(sock, static_cast<ADDRESS_FAMILY>(ai.ai_family), 
+                                static_cast<USHORT>(ai.ai_socktype), ai.ai_protocol, 
+                                WSK_FLAG_CONNECTION_SOCKET, nullptr, nullptr)) {
+                NT_ASSERT(!sock);
+                Trace(TRACE_LEVEL_ERROR, "socket %!STATUS!", err);
+                return err;
+        }
 
         if (auto err = set_options(sock)) {
                 return err;
         }
 
-        SOCKADDR_INET any{ static_cast<ADDRESS_FAMILY>(ai.ai_family) }; // see INADDR_ANY, IN6ADDR_ANY_INIT
+        SOCKADDR_INET any { // see INADDR_ANY, IN6ADDR_ANY_INIT
+                .si_family = static_cast<ADDRESS_FAMILY>(ai.ai_family)
+        };
 
         if (auto err = bind(sock, reinterpret_cast<SOCKADDR*>(&any))) {
                 Trace(TRACE_LEVEL_ERROR, "bind %!STATUS!", err);
                 return err;
         }
 
-        auto err = connect(sock, ai.ai_addr);
-        if (err) {
-                Trace(TRACE_LEVEL_ERROR, "WskConnect %!STATUS!", err);
-        }
-        return err;
+        return STATUS_SUCCESS;
 }
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto connect(_Inout_ device_ctx_ext &ext)
+PAGED NTSTATUS connect(_In_ WDFREQUEST request, _In_ WDFWORKITEM wi, _Inout_ wsk::SOCKET* &sock, _In_ const ADDRINFOEXW &ai)
 {
         PAGED_CODE();
 
-        ADDRINFOEXW *ai{};
-        if (auto err = getaddrinfo(ai, ext)) {
-                Trace(TRACE_LEVEL_ERROR, "getaddrinfo %!STATUS!", err);
-                return USBIP_ERROR_ADDRINFO;
-        }
-
-        NT_ASSERT(!ext.sock);
-        ext.sock = wsk::for_each(WSK_FLAG_CONNECTION_SOCKET, &ext, nullptr, ai, try_connect, nullptr);
-
-        wsk::free(ai);
-        return ext.sock ? USBIP_ERROR_SUCCESS : USBIP_ERROR_CONNECT;
-}
-
-_IRQL_requires_same_
-_IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto plugin(_Out_ int &port, _In_ UDECXUSBDEVICE device)
-{
-        PAGED_CODE();
-
-        if (port = vhci::claim_roothub_port(device); port) {
-                TraceDbg("port %d claimed", port);
-        } else {
-                Trace(TRACE_LEVEL_ERROR, "All roothub ports are occupied");
-                return USBIP_ERROR_PORTFULL;
-        }
-
-        auto &dev = *get_device_ctx(device);
-        auto speed = dev.speed();
-
-        UDECX_USB_DEVICE_PLUG_IN_OPTIONS options; 
-        UDECX_USB_DEVICE_PLUG_IN_OPTIONS_INIT(&options);
-
-        auto &portnum = speed < USB_SPEED_SUPER ? options.Usb20PortNumber : options.Usb30PortNumber;
-        portnum = port;
-
-        if (auto err = UdecxUsbDevicePlugIn(device, &options)) {
-                Trace(TRACE_LEVEL_ERROR, "UdecxUsbDevicePlugIn %!STATUS!", err);
-                return USBIP_ERROR_GENERAL;
-        }
-
-        return USBIP_ERROR_SUCCESS;
-}
-
-struct device_ctx_ext_ptr
-{
-        explicit device_ctx_ext_ptr(_In_ WDFDEVICE vhci) : m_vhci(vhci) {}
-
-        ~device_ctx_ext_ptr()
-        { 
-                if (ptr) {
-                        close_socket(ptr->sock);
-                        device_state_changed(m_vhci, *ptr, 0, vhci::state::disconnected);
-                        free(ptr); 
-                }
-        }
-
-        auto get() const { return ptr; }
-        auto operator ->() const { return ptr; }
-        auto& operator *() const { return *ptr; }
-
-        void release() { ptr = nullptr; }
-
-        WDFDEVICE m_vhci{};
-        device_ctx_ext *ptr{};
-};
-
-_IRQL_requires_same_
-_IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto start_device(_Out_ int &port, _In_ UDECXUSBDEVICE device)
-{
-        PAGED_CODE();
-
-        if (auto err = plugin(port, device)) {
+        if (auto err = create_socket(sock, ai)) {
                 return err;
         }
 
-        if (auto dev = get_device_ctx(device)) {
-                sched_receive_usbip_header(*dev);
+        auto sa = make_sockaddr_inet(ai);
+
+        auto irp = set_args(request, __func__, &ai);
+        IoSetCompletionRoutine(irp, irp_complete, wi, true, true, true);
+
+        auto st = connect(sock, ai.ai_addr, irp); // completion handler will be called anyway
+
+        if (sa.si_family == AF_INET) { // can't access ai.* after connect
+                auto &v4 = sa.Ipv4;
+                TraceDbg("%!IPADDR!, %!STATUS!", v4.sin_addr.s_addr, st);
+        } else {
+                auto &v6 = sa.Ipv6;
+                TraceDbg("%!BIN!, %!STATUS!", WppBinary(&v6.sin6_addr, sizeof(v6.sin6_addr)), st);
         }
 
-        return USBIP_ERROR_SUCCESS;
+        return STATUS_PENDING;
 }
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto plugin_hardware(_In_ WDFDEVICE vhci, _Inout_ vhci::ioctl::plugin_hardware &r)
+PAGED auto on_connect(
+        _In_ WDFREQUEST request, _In_ WDFWORKITEM wi, _Inout_ device_ctx_ext* &ext, _In_ const ADDRINFOEXW &ai)
+{
+        PAGED_CODE();
+
+        auto st = WdfRequestGetStatus(request);
+
+        if (NT_SUCCESS(st)) {
+                st = connected(request, ext);
+                NT_ASSERT(st != STATUS_PENDING);
+        } else {
+                NT_VERIFY(NT_SUCCESS(close(ext->sock)));
+                free(ext->sock);
+
+                st = ai.ai_next ? connect(request, wi, ext->sock, *ai.ai_next) : 
+                                  map_connect_error(st); // preserve last error
+        }
+
+        return st;
+}
+
+_Function_class_(EVT_WDF_WORKITEM)
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED void NTAPI complete(_In_ WDFWORKITEM wi)
+{
+        PAGED_CODE();
+
+        auto request = get_request(wi);
+        auto irp = WdfRequestWdmGetIrp(request);
+
+        WdfRequestSetInformation(request, reinterpret_cast<ULONG_PTR>(libdrv::argv<ARG_INFO>(irp))); // restore
+
+        auto &ctx = *get_workitem_ctx(wi);
+        auto &ext = *ctx.ext;
+
+        auto what = libdrv::argv<const char, ARG_WHAT>(irp);
+        auto st = WdfRequestGetStatus(request);
+
+        TraceDbg("%s %!USTR!:%!USTR!/%!USTR!, %!STATUS!", what, &ext.node_name, &ext.service_name, &ext.busid, st);
+
+        if (auto ai = libdrv::argv<ADDRINFOEXW, ARG_AI>(irp)) {
+                st = on_connect(request, wi, ctx.ext, *ai);
+        } else if (NT_SUCCESS(st)) { // on_addrinfo
+                NT_ASSERT(ctx.addrinfo);
+                st = connect(request, wi, ext.sock, *ctx.addrinfo);
+        } else {
+                st = map_getaddrinfo_error(st);
+        }
+
+        if (st != STATUS_PENDING) {
+                WdfRequestComplete(request, st);
+        }
+}
+
+/*
+ * get_vhci(request) must not be used because the request has being completed.
+ */
+_Function_class_(EVT_WDF_OBJECT_CONTEXT_CLEANUP)
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED void workitem_cleanup(_In_ WDFOBJECT obj)
+{
+        PAGED_CODE();
+
+        auto &ctx = *get_workitem_ctx(static_cast<WDFWORKITEM>(obj)); 
+        TraceDbg("%04x, addrinfo %04x, device_ctx_ext %04x", ptr04x(obj), ptr04x(ctx.addrinfo), ptr04x(ctx.ext));
+
+        wsk::free(ctx.addrinfo);
+        ctx.addrinfo = nullptr;
+
+        if (auto &ext = ctx.ext) {
+                close_socket(ext->sock);
+                device_state_changed(ctx.vhci, *ext, 0, vhci::state::disconnected);
+
+                free(ext);
+                ext = nullptr;
+        }
+}
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED auto create_workitem(_Out_ WDFWORKITEM &wi, _In_ WDFOBJECT parent)
+{
+        PAGED_CODE();
+
+        WDF_WORKITEM_CONFIG cfg;
+        WDF_WORKITEM_CONFIG_INIT(&cfg, complete);
+        cfg.AutomaticSerialization = false;
+
+        WDF_OBJECT_ATTRIBUTES attr; // WdfSynchronizationScopeNone is inherited from the driver object
+        WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, workitem_ctx);
+
+        attr.EvtCleanupCallback = workitem_cleanup;
+        attr.ParentObject = parent;
+
+        auto st = WdfWorkItemCreate(&cfg, &attr, &wi);
+
+        TraceDbg("%04x, %!STATUS!", ptr04x(wi), st);
+        return st;
+}
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED auto getaddrinfo(_In_ WDFREQUEST request, _In_ WDFWORKITEM wi, _Inout_ workitem_ctx &ctx)
+{
+        PAGED_CODE();
+        auto &ext = *ctx.ext;
+
+        ADDRINFOEXW hints {
+                .ai_flags = AI_NUMERICSERV,
+                .ai_family = AF_UNSPEC,
+                .ai_socktype = SOCK_STREAM,
+                .ai_protocol = IPPROTO_TCP // zero isn't work
+        };
+
+        auto irp = set_args(request, __func__);
+        IoSetCompletionRoutine(irp, irp_complete, wi, true, true, true);
+                         
+        NT_ASSERT(!ctx.addrinfo);
+        return wsk::getaddrinfo(ctx.addrinfo, &ext.node_name, &ext.service_name, &hints, irp);
+}
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED NTSTATUS plugin_hardware( _In_ WDFREQUEST request, _In_ const vhci::ioctl::plugin_hardware &r)
 {
         PAGED_CODE();
         Trace(TRACE_LEVEL_INFORMATION, "%s:%s, busid %s", r.host, r.service, r.busid);
 
-        auto &port = r.port;
-        r.port = 0;
+        WDFWORKITEM wi{};
+        if (auto err = create_workitem(wi, request)) {
+                Trace(TRACE_LEVEL_ERROR, "WdfWorkItemCreate %!STATUS!", err);
+                return err;
+        } 
 
-        device_ctx_ext_ptr ext(vhci);
-        if (NT_ERROR(create_device_ctx_ext(ext.ptr, r))) {
-                return USBIP_ERROR_GENERAL;
-        }
+        auto &ctx = *get_workitem_ctx(wi);
+        ctx.vhci = get_vhci(request);
 
-        device_state_changed(vhci, *ext, port, vhci::state::connecting);
-
-        if (auto err = connect(*ext)) {
-                Trace(TRACE_LEVEL_ERROR, "Can't connect to %!USTR!:%!USTR!", &ext->node_name, &ext->service_name);
+        if (auto err = create_device_ctx_ext(ctx.ext, r)) {
                 return err;
         }
 
-        Trace(TRACE_LEVEL_INFORMATION, "Connected to %!USTR!:%!USTR!", &ext->node_name, &ext->service_name);
-        device_state_changed(vhci, *ext, port, vhci::state::connected);
+        device_state_changed(ctx.vhci, *ctx.ext, 0, vhci::state::connecting);
 
-        if (auto err = import_remote_device(*ext)) {
-                return err;
+        auto st = getaddrinfo(request, wi, ctx);
+        TraceDbg("getaddrinfo %!STATUS!", st);
+
+        if (st != STATUS_INVALID_PARAMETER) [[likely]] { // completion handler will be called
+                st = STATUS_PENDING;
         }
 
-        UDECXUSBDEVICE dev;
-        if (NT_ERROR(device::create(dev, vhci, ext.get()))) {
-                return USBIP_ERROR_GENERAL;
-        }
-        ext.release(); // now dev owns it
-
-        if (auto err = start_device(port, dev)) {
-                WdfObjectDelete(dev); // UdecxUsbDevicePlugIn failed or was not called
-                return err;
-        }
-
-        Trace(TRACE_LEVEL_INFORMATION, "dev %04x plugged in, port %d", ptr04x(dev), port);
-
-        if (auto ctx = get_device_ctx(dev)) {
-                device_state_changed(*ctx, vhci::state::plugged);
-        }
-
-        return USBIP_ERROR_SUCCESS;
+        return st;
 }
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto plugin_hardware(_In_ WDFREQUEST request)
+PAGED NTSTATUS plugin_hardware(_In_ WDFREQUEST request)
 {
         PAGED_CODE();
         WdfRequestSetInformation(request, 0);
 
         vhci::ioctl::plugin_hardware *r{};
 
-        if (size_t length; 
+        if (size_t length{}; 
             auto err = WdfRequestRetrieveInputBuffer(request, sizeof(*r), reinterpret_cast<PVOID*>(&r), &length)) {
                 return err;
         } else if (length != sizeof(*r)) {
@@ -368,22 +548,20 @@ PAGED auto plugin_hardware(_In_ WDFREQUEST request)
                 Trace(TRACE_LEVEL_ERROR, "plugin_hardware.size %lu != sizeof(plugin_hardware) %Iu", 
                                           r->size, sizeof(*r));
 
-                return as_ntstatus(USBIP_ERROR_ABI);
+                return USBIP_ERROR_ABI;
         }
 
-        if (auto vhci = get_vhci(request); auto err = plugin_hardware(vhci, *r)) {
-                return as_ntstatus(err);
-        }
+        r->port = 0;
 
         constexpr auto written = offsetof(vhci::ioctl::plugin_hardware, port) + sizeof(r->port);
         WdfRequestSetInformation(request, written);
 
-        return STATUS_SUCCESS;
+        return plugin_hardware(request, *r);
 }
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto plugout_hardware(_In_ WDFREQUEST request)
+PAGED NTSTATUS plugout_hardware(_In_ WDFREQUEST request)
 {
         PAGED_CODE();
 
@@ -398,7 +576,7 @@ PAGED auto plugout_hardware(_In_ WDFREQUEST request)
                 Trace(TRACE_LEVEL_ERROR, "plugout_hardware.size %lu != sizeof(plugout_hardware) %Iu",
                                           r->size, sizeof(*r));
 
-                return as_ntstatus(USBIP_ERROR_ABI);
+                return USBIP_ERROR_ABI;
         }
 
         TraceDbg("port %d", r->port);
@@ -419,7 +597,7 @@ PAGED auto plugout_hardware(_In_ WDFREQUEST request)
 
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
-PAGED auto get_imported_devices(_In_ WDFREQUEST request)
+PAGED NTSTATUS get_imported_devices(_In_ WDFREQUEST request)
 {
         PAGED_CODE();
         WdfRequestSetInformation(request, 0);
@@ -433,7 +611,7 @@ PAGED auto get_imported_devices(_In_ WDFREQUEST request)
                 Trace(TRACE_LEVEL_ERROR, "get_imported_devices.size %lu != sizeof(get_imported_devices) %Iu", 
                                           r->size, sizeof(*r));
 
-                return as_ntstatus(USBIP_ERROR_ABI);
+                return USBIP_ERROR_ABI;
         }
 
         auto devices_size = outlen - offsetof(vhci::ioctl::get_imported_devices, devices); // size of array
@@ -553,8 +731,7 @@ PAGED void device_control(
         TraceDbg("%s(%#08lX), OutputBufferLength %Iu, InputBufferLength %Iu", 
                   device_control_name(IoControlCode), IoControlCode, OutputBufferLength, InputBufferLength);
 
-        auto complete = true;
-        auto st = STATUS_INVALID_DEVICE_REQUEST;
+        NTSTATUS st;
 
         switch (IoControlCode) {
         case vhci::ioctl::PLUGIN_HARDWARE:
@@ -582,11 +759,12 @@ PAGED void device_control(
                 }
                 [[fallthrough]];
         default:
-                complete = !UdecxWdfDeviceTryHandleUserIoctl(WdfIoQueueGetDevice(Queue), Request); // PASSIVE_LEVEL
+                st = UdecxWdfDeviceTryHandleUserIoctl(WdfIoQueueGetDevice(Queue), Request) ? // PASSIVE_LEVEL
+                        STATUS_PENDING : STATUS_INVALID_DEVICE_REQUEST;
         }
 
-        if (complete) {
-                TraceDbg("%!STATUS!, Information %Iu", st, WdfRequestGetInformation(Request));
+        if (st != STATUS_PENDING) {
+                TraceDbg("%!STATUS!, Information %Ix", st, WdfRequestGetInformation(Request));
                 WdfRequestComplete(Request, st);
         }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 - 2023 Vadym Hrynchyshyn <vadimgrn@gmail.com>
+ * Copyright (C) 2022 - 2024 Vadym Hrynchyshyn <vadimgrn@gmail.com>
  */
 
 #pragma once
@@ -15,7 +15,6 @@
 
 #include <initguid.h>
 #include <usbip\vhci.h>
-
 
 /*
  * Macro WDF_TYPE_NAME_TO_TYPE_INFO (see WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE)
@@ -172,7 +171,6 @@ inline auto& get_endpoint(_In_ WDFQUEUE queue) // use get_device() for device_ct
 {
         return *WdfObjectGet_UDECXUSBENDPOINT(queue);
 }
-
 
 /*
  * Context space for WDFREQUEST.

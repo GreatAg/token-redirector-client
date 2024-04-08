@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 - 2023 Vadym Hrynchyshyn <vadimgrn@gmail.com>
+ * Copyright (C) 2022 - 2024 Vadym Hrynchyshyn <vadimgrn@gmail.com>
  */
 
 #include "network.h"
@@ -65,7 +65,7 @@ PAGED USBIP_STATUS usbip::recv_op_common(_Inout_ SOCKET *sock, _In_ UINT16 expec
         op_common r{};
         if (auto err = recv(sock, memory::stack, &r, sizeof(r))) {
                 Trace(TRACE_LEVEL_ERROR, "Receive %!STATUS!", err);
-                return USBIP_ERROR_NETWORK;
+                return err;
         }
 	PACK_OP_COMMON(false, &r);
 
