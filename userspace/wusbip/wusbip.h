@@ -74,6 +74,9 @@ private:
 	void on_log_show_update_ui(wxUpdateUIEvent &event) override;
 	void on_log_show(wxCommandEvent &event) override;
 
+	void on_log_library_update_ui(wxUpdateUIEvent &event) override;
+	void on_log_library(wxCommandEvent &event) override;
+
 	void on_log_verbose_update_ui(wxUpdateUIEvent &event) override;
 	void on_log_verbose(wxCommandEvent &event) override;
 
@@ -115,7 +118,7 @@ private:
 	std::pair<wxTreeListItem, bool> find_or_add_device(_In_ const usbip::device_columns &dc);
 
 	void remove_device(_In_ wxTreeListItem dev);
-	bool attach(_In_ const wxString &url, _In_ const wxString &busid);
+	DWORD attach(_In_ const wxString &url, _In_ const wxString &busid);
 	
 	void post_refresh();
 	void post_exit();
@@ -124,6 +127,9 @@ private:
 	void set_persistent(_In_ wxTreeListItem device, _In_ bool persistent);
 
 	void update_device(_In_ wxTreeListItem device, _In_ const usbip::device_columns &dc, _In_ unsigned int flags);
+	
+	auto connect(_In_ const wxString &hostname, _In_ const wxString &service, 
+		              _In_ const std::string &hostname_u8, _In_ const std::string &service_u8);
 
 	wxDataViewColumn* find_column(_In_ const wxString &title) const noexcept;
 	wxDataViewColumn* find_column(_In_ int item_id) const noexcept;
