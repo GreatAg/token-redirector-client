@@ -98,7 +98,7 @@ auto usbip::make_device_columns(_In_ const imported_device &dev) -> std::pair<de
         auto flags = 0U;
 
         if (!is_empty(dev)) {
-                dc[COL_SPEED] = get_speed_str(dev.speed);
+                dc[COL_SPEED] = get_speed_str(dev.speed); // do not use _(), get_speed_val must return original value
                 flags = set_vendor_product(dc, mkflag(COL_SPEED), dev.vendor, dev.product);
         } else {
                 wxASSERT(!dev.speed);
@@ -118,7 +118,7 @@ auto usbip::make_device_columns(_In_ const device_state &st) -> std::pair<device
         auto ret = make_device_columns(st.device);
         auto &[dc, flags] = ret;
 
-        dc[COL_STATE] = _(vhci::get_state_str(st.state));
+        dc[COL_STATE] = to_string(st.state);
         flags |= mkflag(COL_STATE);
 
         return ret;

@@ -24,18 +24,18 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 // TEXTINCLUDE
 //
 
-1 TEXTINCLUDE
+1 TEXTINCLUDE 
 BEGIN
     "resource.h\0"
 END
 
-2 TEXTINCLUDE
+2 TEXTINCLUDE 
 BEGIN
     "#include ""winres.h""\r\n"
     "\0"
 END
 
-3 TEXTINCLUDE
+3 TEXTINCLUDE 
 BEGIN
     "\r\n"
     "\0"
@@ -92,14 +92,18 @@ IDR_USB_IDS             RCDATA                  "../usbip/usb.ids"
 
 
 /////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
 
-// wxWidgets
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
 
 // note that the icon used by the Explorer (i.e. the programs icon) is the
 // first icon in the executable and the icons are sorted both by their order
 // and alphabetically (!), so put this icon first and give it a name
 // starting with "a"
-aaaaaaaa ICON 	"USBip.ico"
+aaaaaaaa		ICON                    "resources/USBip.ico"
 
 // this icon is used with wxFrame::SetIcon()
 USBip	 ICON 	"USBIpFrame.ico"

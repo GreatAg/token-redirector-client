@@ -6,6 +6,7 @@
 
 #include "frame.h"
 #include "device_columns.h"
+#include "tree_comparator.h"
 
 #include <libusbip/win_handle.h>
 
@@ -24,6 +25,7 @@ class MainFrame : public Frame
 {
 public:
 	MainFrame(_In_ usbip::Handle read);
+	~MainFrame();
 
 	auto start_in_tray() const noexcept { return m_start_in_tray; }
 	void iconize_to_tray();
@@ -36,11 +38,13 @@ public:
 
 private:
 	friend class wxPersistentMainFrame;
+	enum { IMG_SERVER, IMG_DEVICE, IMG_CNT };
 
 	bool m_start_in_tray{};
 	bool m_close_to_tray{};
 
 	wxLogWindow *m_log{};
+	TreeListItemComparator m_tree_cmp;
 	std::unique_ptr<TaskBarIcon> m_taskbar_icon;
 	std::unique_ptr<wxMenu> m_tree_popup_menu;
 
@@ -48,6 +52,8 @@ private:
 	std::mutex m_read_close_mtx;
 
 	std::thread m_read_thread{ &MainFrame::read_loop, this };
+
+	static wxWithImages::Images get_tree_images();
 
 	void on_close(wxCloseEvent &event) override; 
 	void on_attach(wxCommandEvent &event) override;

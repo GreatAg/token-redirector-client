@@ -34,9 +34,9 @@ namespace
 
 using namespace usbip;
 
+const auto g_persistent_mark = L'\u2713'; // CHECK MARK, 2714 HEAVY CHECK MARK
 auto &g_key_devices = L"/devices";
 auto &g_key_url = L"url";
-auto &g_persistent_mark = L"\u2713"; // CHECK MARK, 2714 HEAVY CHECK MARK
 
 consteval auto get_saved_keys()
 {
@@ -345,6 +345,11 @@ MainFrame::MainFrame(_In_ Handle read) :
         post_refresh();
 }
 
+MainFrame::~MainFrame()
+{
+        m_treeListCtrl->SetItemComparator(nullptr);
+}
+
 void MainFrame::init()
 {
         m_log->SetVerbose(true); // produce messages for wxLOG_Info
@@ -379,15 +384,33 @@ void MainFrame::init_tree_list()
         auto &tree = *m_treeListCtrl;
         auto &dv = *tree.GetDataView();
 
+        tree.SetImages(get_tree_images());
+        tree.SetItemComparator(&m_tree_cmp);
+
         tree.GetView()->Bind(wxEVT_MOUSEWHEEL, wxMouseEventHandler(MainFrame::on_tree_mouse_wheel), this);
 
         if (auto hdr = dv.GenericGetHeader()) {
                 hdr->Bind(wxEVT_MOUSEWHEEL, wxMouseEventHandler(MainFrame::on_tree_mouse_wheel), this);
+                if (auto colour = wxTheColourDatabase->Find(L"DIM GREY"); colour.IsOk()) { // MIDNIGHT BLUE"
+                        hdr->SetForegroundColour(colour);
+                }
         }
 
         if (auto colour = wxTheColourDatabase->Find(L"MEDIUM GOLDENROD"); colour.IsOk()) { // "WHEAT"
                 dv.SetAlternateRowColour(colour);
         }
+}
+
+wxWithImages::Images MainFrame::get_tree_images()
+{
+        wxWithImages::Images v(IMG_CNT);
+
+        for (auto client = wxASCII_STR(wxART_LIST); 
+             auto [idx, id]: { std::make_pair(IMG_SERVER, wxART_GO_HOME), {IMG_DEVICE, wxART_REMOVABLE} }) {
+                v[idx] = wxArtProvider::GetBitmap(wxASCII_STR(id), client);
+        }
+
+        return v;
 }
 
 void MainFrame::restore_state()
@@ -833,7 +856,7 @@ wxTreeListItem MainFrame::find_or_add_server(_In_ const wxString &url)
                 }
         }
 
-        return server = tree.AppendItem(tree.GetRootItem(), url);
+        return server = tree.AppendItem(tree.GetRootItem(), url, IMG_SERVER, IMG_SERVER);
 }
 
 std::pair<wxTreeListItem, bool> MainFrame::find_or_add_device(_In_ const wxString &url, _In_ const wxString &busid)
@@ -849,7 +872,7 @@ std::pair<wxTreeListItem, bool> MainFrame::find_or_add_device(_In_ const wxStrin
                 }
         }
 
-        auto device = tree.AppendItem(server, busid);
+        auto device = tree.AppendItem(server, busid, IMG_DEVICE, IMG_DEVICE);
 
         if (!tree.IsExpanded(server)) {
                 tree.Expand(server);
@@ -1072,10 +1095,9 @@ void MainFrame::on_item_activated(wxTreeListEvent &event)
         
         if (auto item = event.GetItem(); tree.GetItemParent(item) == tree.GetRootItem()) {
                 // item is a server
-        } else if (auto state = tree.GetItemText(item, COL_STATE);
-                   state == _(vhci::get_state_str(state::unplugged))) {
-                on_attach(event);
-        } else if (state == _(vhci::get_state_str(state::plugged))) {
+        } else if (auto state = tree.GetItemText(item, COL_STATE); state == to_string(state::unplugged)) {
+                on_attach(event); 
+        } else if (state == to_string(state::plugged)) {
                 on_detach(event);
         }
 }
@@ -1195,7 +1217,7 @@ void MainFrame::on_load(wxCommandEvent&)
                 constexpr auto state_flag = mkflag(COL_STATE);
                 static_assert(!(get_saved_flags() & state_flag));
 
-                dc[COL_STATE] = _(vhci::get_state_str(state::unplugged));
+                dc[COL_STATE] = to_string(state::unplugged);
                 flags = update_from_saved(dc, flags | state_flag, persistent);
 
                 update_device(dev, dc, flags);

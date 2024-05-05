@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="userspace/wusbip/art/USBip.svg" width="256" alt="USBip logo"/>
+  <img src="userspace/wusbip/resources/USBip.svg" width="256" alt="USBip logo"/>
 </p>
 
 [![latest release](https://img.shields.io/github/v/release/vadimgrn/usbip-win2?include_prereleases)](https://github.com/vadimgrn/usbip-win2/releases/latest) [![release date](https://img.shields.io/github/release-date-pre/vadimgrn/usbip-win2)](https://github.com/vadimgrn/usbip-win2/releases/latest) [![downloads](https://img.shields.io/github/downloads-pre/vadimgrn/usbip-win2/latest/total)](https://github.com/vadimgrn/usbip-win2/releases/latest) [![commits since](https://img.shields.io/github/commits-since/vadimgrn/usbip-win2/latest/develop?include_prereleases "commits since")](https://github.com/vadimgrn/usbip-win2/commits/develop) [![commit activity](https://img.shields.io/github/commit-activity/m/vadimgrn/usbip-win2/develop "commit activity")](https://github.com/vadimgrn/usbip-win2/commits/develop) [![license](https://img.shields.io/github/license/vadimgrn/usbip-win2)](https://github.com/vadimgrn/usbip-win2/blob/master/LICENSE)
@@ -10,20 +10,7 @@
 - **Is not ready for production use**, can cause BSOD
 - The driver is not signed, [Windows Test Signing Mode](https://docs.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option) must be enabled
 - You can **donate to purchase an EV certificate** which is required for signing the driver, please read [this](https://github.com/vadimgrn/usbip-win2/issues/48#issuecomment-1888655412) thread
-
-## Two implementations
-- [UDE driver](https://github.com/vadimgrn/usbip-win2/tree/master) (version 0.9.5 and later)
-  - Is stable, but **has known issues** for some kind of devices (at least audio devices)
-  - Should be used if your devices work with it
-  - [Devices](https://github.com/vadimgrn/usbip-win2/wiki#ude-driver-list-of-devices-known-to-work) that work (list is incomplete)
-- [WDM driver](https://github.com/vadimgrn/usbip-win2/tree/wdm) (versions up to 0.9.5)
-  - **Is fully implemented**
-  - The latest release is [0.9.3.4](https://github.com/vadimgrn/usbip-win2/releases/tag/wdm-0.9.3.4)
-  - Development stopped in favor of UDE driver
-  - Use it only if UDE driver has issues with your devices
-  - Will be supported until UDE driver is fully functional
-  - [Devices](https://github.com/vadimgrn/usbip-win2/wiki#wdm-driver-list-of-devices-known-to-work) that work (list is incomplete)
-- UDE and WDM drivers can be installed and used together on the same PC, just make sure you use the appropriate usbip.exe for each one
+- [Devices](https://github.com/vadimgrn/usbip-win2/wiki#ude-driver-list-of-devices-known-to-work) that work (list is incomplete)
 
 ## Requirements
 - Windows 10 x64 Version [1809](https://en.wikipedia.org/wiki/Windows_10,_version_1809) (OS build 17763) and later
@@ -39,7 +26,7 @@
   - [Memory Descriptor List](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/using-mdls) is used to send multiple buffers in a single call ([vectored I/O](https://en.wikipedia.org/wiki/Vectored_I/O))
   - [WskSend](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wsk/nc-wsk-pfn_wsk_send) reads data from URB transfer buffer
   - [WskReceive](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wsk/nc-wsk-pfn_wsk_receive) writes data to URB transfer buffer
-- [System Worker Threads](https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/system-worker-threads) are used to initiate receive operation
+- A dedicated thread is created for each virtual device to receive data from a server
 
 ## Differences with [cezanne/usbip-win](https://github.com/cezanne/usbip-win)
 - Brand new UDE driver, not inherited from the parent repo

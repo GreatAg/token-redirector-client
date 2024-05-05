@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Vadym Hrynchyshyn <vadimgrn@gmail.com>
+ * Copyright (C) 2023 - 2024 Vadym Hrynchyshyn <vadimgrn@gmail.com>
  */
 
 #include "filter_request.h"
@@ -137,7 +137,7 @@ auto select_configuration(
                 cfg = cd->bConfigurationValue;
 
                 auto intf = &r.Interface;
-                for (int i = 0; i < cd->bNumInterfaces; ++i, intf = usbdlib::next(intf)) {
+                for (int i = 0; i < cd->bNumInterfaces; ++i, intf = libdrv::next(intf)) {
                         update_pipe_properties(dev, *intf);
                 }
         }
@@ -172,6 +172,9 @@ NTSTATUS usbip::filter::unpack_request(
         _In_ device_ctx &dev, _Inout_ _URB_CONTROL_TRANSFER_EX &r, _In_ int function)
 {
         NT_ASSERT(!r.TransferBufferLength);
+
+        NT_ASSERT((USBD_TRANSFER_DIRECTION_FLAG(r.TransferFlags) == USBD_TRANSFER_DIRECTION_IN));
+        r.TransferFlags ^= USBD_TRANSFER_DIRECTION_IN; // flip direction
 
         auto func_name = urb_function_str(function);
         TraceDbg("%s", func_name);

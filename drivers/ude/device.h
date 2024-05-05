@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 - 2023 Vadym Hrynchyshyn <vadimgrn@gmail.com>
+ * Copyright (C) 2022 - 2024 Vadym Hrynchyshyn <vadimgrn@gmail.com>
  */
 
 #pragma once
@@ -23,6 +23,10 @@ namespace usbip::device
 _IRQL_requires_same_
 _IRQL_requires_(PASSIVE_LEVEL)
 PAGED NTSTATUS create(_Out_ UDECXUSBDEVICE &device, _In_ WDFDEVICE vhci, _In_ device_ctx_ext *ext);
+
+_IRQL_requires_same_
+_IRQL_requires_(PASSIVE_LEVEL)
+PAGED NTSTATUS recv_thread_start(_In_ UDECXUSBDEVICE device);
 
 _IRQL_requires_same_
 _IRQL_requires_max_(DISPATCH_LEVEL)
