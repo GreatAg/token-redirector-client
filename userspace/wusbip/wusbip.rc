@@ -133,7 +133,7 @@ USBip	 ICON 	"USBIpFrame.ico"
 
 // this file contains the standard icons, cursors etc. and also includes the application
 // manifest mentioned above
-#include "wx/msw/wx.rc"
+//#include "wx/msw/wx.rc"
 
 #endif    // English (United States) resources
 /////////////////////////////////////////////////////////////////////////////
